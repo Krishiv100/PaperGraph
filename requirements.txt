@@ -1,0 +1,7 @@
+
+streamlit
+pymupdf
+keybert
+sentence-transformers
+networkx
+pyvis
