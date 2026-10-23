@@ -17,37 +17,274 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
-:root { --ink:#172033; --muted:#64748b; --line:#e5eaf2; --blue:#4f46e5; }
-html, body, [class*="css"] { font-family:'DM Sans',sans-serif; }
-.stApp { background:linear-gradient(180deg,#f8faff 0%,#f4f6fb 100%); color:var(--ink); }
-[data-testid="stSidebar"] { background:#111827; border-right:1px solid #263246; }
-[data-testid="stSidebar"] * { color:#e5e7eb; }
-.brand {font-family:Manrope,sans-serif;font-size:28px;font-weight:800;letter-spacing:-1.4px;color:#fff;padding-top:8px}
-.brand span {color:#a5b4fc}
-.sidebar-caption {font-size:11px;letter-spacing:1.5px;color:#9ca3af;margin-bottom:24px}
-.hero {padding:12px 0 18px}
-.eyebrow {color:#4f46e5;text-transform:uppercase;letter-spacing:1.8px;font-size:11px;font-weight:800;margin-bottom:8px}
-.hero-title {font-family:Manrope,sans-serif;font-size:clamp(30px,4vw,44px);line-height:1.1;letter-spacing:-1.8px;font-weight:800;color:#111827;margin:0 0 10px}
-.hero-sub {color:#64748b;font-size:15px;line-height:1.7;max-width:850px}
-.section-title {font-family:Manrope,sans-serif;font-size:23px;font-weight:800;letter-spacing:-.6px;color:#111827;margin:8px 0 4px}
-.section-sub {color:#64748b;font-size:13px;margin-bottom:18px}
-.card {background:#fff;border:1px solid #e5eaf2;border-radius:16px;padding:20px 22px;margin-bottom:12px;box-shadow:0 4px 18px rgba(15,23,42,.025)}
-.card-title {font-weight:800;color:#172033;font-size:15px;margin-bottom:8px}
-.card-text {color:#526079;font-size:13px;line-height:1.7}
-.metric {background:#fff;border:1px solid #e5eaf2;border-radius:15px;padding:17px 18px;min-height:104px}
-.metric-label {color:#64748b;font-size:11px;font-weight:800;letter-spacing:.7px}
-.metric-value {font-family:Manrope,sans-serif;font-size:28px;font-weight:800;letter-spacing:-1px;color:#111827;margin-top:8px}
-.pill {display:inline-block;background:#eef2ff;color:#4338ca;border-radius:8px;padding:6px 9px;margin:3px;font-size:12px;font-weight:700}
-div.stButton>button[kind="primary"] {background:#4f46e5;border:1px solid #4f46e5;color:white;border-radius:10px;min-height:44px;font-weight:700}
-div.stButton>button[kind="primary"]:hover {background:#4338ca;border-color:#4338ca}
-div[data-testid="stFileUploader"] {background:white;border:1px dashed #a5b4fc;border-radius:12px;padding:8px}
-div[data-testid="stTabs"] button {font-weight:700}
-[data-testid="stExpander"] {background:#fff;border:1px solid #e5eaf2;border-radius:12px}
-.small-note {font-size:12px;color:#64748b}
-.footer {text-align:center;color:#94a3b8;font-size:11px;padding:28px 0 8px}
+/* --------------------------------------------------
+   PaperGraph — Research-focused visual system
+   -------------------------------------------------- */
+
+:root {
+    --pg-bg: #F7F8FA;
+    --pg-surface: #FFFFFF;
+    --pg-text: #263746;
+    --pg-muted: #637381;
+    --pg-accent: #356F70;
+    --pg-accent-hover: #28595A;
+    --pg-border: #E1E6EB;
+    --pg-soft: #EEF4F4;
+}
+
+/* App background and typography */
+.stApp {
+    background: var(--pg-bg);
+    color: var(--pg-text);
+    font-family: "Inter", "Segoe UI", sans-serif;
+}
+
+[data-testid="stHeader"] {
+    background: rgba(247, 248, 250, 0.96);
+}
+
+[data-testid="stMain"] {
+    background: var(--pg-bg);
+}
+
+.block-container {
+    max-width: 1440px;
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+}
+
+/* Headings: clear hierarchy, no oversized display text */
+h1, h2, h3, h4 {
+    color: var(--pg-text) !important;
+    letter-spacing: -0.025em;
+    font-weight: 650 !important;
+}
+
+h1 {
+    font-size: 2rem !important;
+    line-height: 1.25 !important;
+}
+
+h2 {
+    font-size: 1.4rem !important;
+}
+
+h3 {
+    font-size: 1.08rem !important;
+}
+
+p, li, label, .stMarkdown {
+    color: var(--pg-text);
+    line-height: 1.65;
+}
+
+small, [data-testid="stCaptionContainer"] {
+    color: var(--pg-muted) !important;
+}
+
+/* Sidebar: quiet navigation, not a dark decorative panel */
+[data-testid="stSidebar"] {
+    background: #FFFFFF;
+    border-right: 1px solid var(--pg-border);
+}
+
+[data-testid="stSidebar"] > div:first-child {
+    padding-top: 1.5rem;
+}
+
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+    font-size: 0.92rem;
+}
+
+[data-testid="stSidebar"] hr {
+    border-color: var(--pg-border);
+}
+
+/* Tabs: restrained academic workspace */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 1.25rem;
+    border-bottom: 1px solid var(--pg-border);
+    background: transparent;
+}
+
+.stTabs [data-baseweb="tab"] {
+    height: 46px;
+    padding: 0 0.25rem;
+    background: transparent;
+    color: var(--pg-muted);
+    border-radius: 0;
+    font-size: 0.93rem;
+    font-weight: 500;
+}
+
+.stTabs [data-baseweb="tab"]:hover {
+    color: var(--pg-accent);
+}
+
+.stTabs [aria-selected="true"] {
+    color: var(--pg-accent) !important;
+    font-weight: 650 !important;
+}
+
+.stTabs [data-baseweb="tab-highlight"] {
+    background-color: var(--pg-accent);
+    height: 2px;
+}
+
+.stTabs [data-baseweb="tab-border"] {
+    background-color: transparent;
+}
+
+/* Buttons: one purposeful accent color */
+.stButton > button,
+.stDownloadButton > button,
+[data-testid="stFormSubmitButton"] button {
+    background: var(--pg-accent);
+    color: #FFFFFF;
+    border: 1px solid var(--pg-accent);
+    border-radius: 6px;
+    padding: 0.48rem 0.9rem;
+    font-weight: 600;
+    transition: background 120ms ease, border-color 120ms ease;
+}
+
+.stButton > button:hover,
+.stDownloadButton > button:hover,
+[data-testid="stFormSubmitButton"] button:hover {
+    background: var(--pg-accent-hover);
+    border-color: var(--pg-accent-hover);
+    color: #FFFFFF;
+}
+
+.stButton > button:focus,
+.stDownloadButton > button:focus {
+    box-shadow: 0 0 0 2px #B7D5D3;
+}
+
+/* Inputs: clear borders and visible focus */
+.stTextInput input,
+.stTextArea textarea,
+.stSelectbox [data-baseweb="select"],
+.stNumberInput input {
+    background: #FFFFFF;
+    color: var(--pg-text);
+    border-color: #CDD6DE;
+    border-radius: 6px;
+}
+
+.stTextInput input:focus,
+.stTextArea textarea:focus,
+.stNumberInput input:focus {
+    border-color: var(--pg-accent);
+    box-shadow: 0 0 0 1px var(--pg-accent);
+}
+
+/* Content containers: subtle boundaries, no heavy shadows */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--pg-surface);
+    border-color: var(--pg-border) !important;
+    border-radius: 8px;
+    box-shadow: none;
+}
+
+/* Metrics: compact, information-first */
+[data-testid="stMetric"] {
+    background: #FFFFFF;
+    border: 1px solid var(--pg-border);
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+}
+
+[data-testid="stMetricLabel"] {
+    color: var(--pg-muted) !important;
+    font-size: 0.82rem;
+}
+
+[data-testid="stMetricValue"] {
+    color: var(--pg-text) !important;
+    font-size: 1.55rem;
+    font-weight: 650;
+}
+
+/* Alerts and status messages */
+[data-testid="stAlert"] {
+    border-radius: 6px;
+    border-width: 1px;
+    box-shadow: none;
+}
+
+/* Expanders: useful for source text and evidence details */
+[data-testid="stExpander"] {
+    background: #FFFFFF;
+    border: 1px solid var(--pg-border);
+    border-radius: 6px;
+}
+
+[data-testid="stExpander"] summary {
+    color: var(--pg-text);
+    font-weight: 550;
+}
+
+/* Tables: readable paper metadata and evidence */
+[data-testid="stDataFrame"],
+[data-testid="stTable"] {
+    border: 1px solid var(--pg-border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+/* Horizontal dividers */
+hr {
+    border-color: var(--pg-border);
+}
+
+/* Links */
+a {
+    color: var(--pg-accent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+}
+
+a:hover {
+    color: var(--pg-accent-hover);
+}
+
+/* Interactive graph frame */
+iframe {
+    border: 1px solid var(--pg-border);
+    border-radius: 6px;
+    background: #FFFFFF;
+}
+
+/* Keyboard accessibility */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+    outline: 2px solid var(--pg-accent);
+    outline-offset: 2px;
+}
+
+/* Smaller screens */
+@media (max-width: 768px) {
+    .block-container {
+        padding: 1rem 1rem 2rem;
+    }
+
+    h1 {
+        font-size: 1.65rem !important;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.6rem;
+    }
+
+    [data-testid="stMetric"] {
+        padding: 0.7rem;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 

@@ -1,117 +1,343 @@
+
+import html
+import json
 import re
-from html import escape
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 import networkx as nx
 from pyvis.network import Network
 
 
-def clean_label(text: str, max_words: int = 9) -> str:
+# Restrained colors chosen to distinguish research entity types.
+
+COLORS = {
+    "paper": "#263746",   # Core paper
+    "problem": "#B77B27", # Research problem
+    "method": "#7566A8",  # Methodology
+    "finding": "#28745F", # Findings
+    "keyword": "#397CA5", # Keywords
+    "notice": "#788692",  # Empty or unavailable information
+}
+
+CATEGORIES = [
+    ("research_problem_candidates", "problem", "Research problem"),
+    ("method_candidates", "method", "Method"),
+    ("result_candidates", "finding", "Finding"),
+]
+
+
+def clean_label(text: str, max_words: int = 8) -> str:
+    """Create a compact label while preserving the full text elsewhere."""
     text = re.sub(r"\s+", " ", str(text or "")).strip()
     words = text.split()
-    return " ".join(words[:max_words]) + ("…" if len(words) > max_words else "")
+
+    if len(words) > max_words:
+        return " ".join(words[:max_words]) + "…"
+
+    return text
 
 
-def _add_node(graph, node_id, label, title, color, size=20, shape="dot", group=None):
+def _add_node(
+    graph: nx.Graph,
+    node_id: str,
+    label: str,
+    description: str,
+    category: str,
+    size: int = 20,
+    shape: str = "dot",
+) -> None:
+    """Add a graph node with a short label and a full-text tooltip."""
     graph.add_node(
         node_id,
-        label=clean_label(label, 12),
-        title=escape(str(title or label)),
-        color=color,
+        label=clean_label(label),
+        title=html.escape(str(description or label)),
+        color=COLORS.get(category, COLORS["notice"]),
         size=size,
         shape=shape,
-        group=group or "concept",
-        font={"size": 15, "face": "Arial", "color": "#172033", "strokeWidth": 3, "strokeColor": "#ffffff"},
-        borderWidth=2,
+        group=category,
+        font={
+            "face": "Arial",
+            "size": 16,
+            "color": "#263746",
+            "strokeWidth": 3,
+            "strokeColor": "#ffffff",
+        },
+        borderWidth=1.5,
+    )
+
+
+def _normalise_terms(text: str) -> set[str]:
+    """Extract words and short phrases for conservative text matching."""
+    text = str(text or "").casefold()
+    return set(re.findall(r"[a-z0-9]+(?:[-'][a-z0-9]+)*", text))
+
+
+def _keyword_matches(keyword: str, sentence: str) -> bool:
+    """
+    Match a keyword as a complete phrase or sequence of tokens.
+    This avoids false matches such as 'net' matching 'network'.
+    """
+    keyword_tokens = re.findall(
+        r"[a-z0-9]+(?:[-'][a-z0-9]+)*",
+        str(keyword or "").casefold(),
+    )
+    sentence_tokens = re.findall(
+        r"[a-z0-9]+(?:[-'][a-z0-9]+)*",
+        str(sentence or "").casefold(),
+    )
+
+    if not keyword_tokens or not sentence_tokens:
+        return False
+
+    width = len(keyword_tokens)
+
+    return any(
+        sentence_tokens[i:i + width] == keyword_tokens
+        for i in range(len(sentence_tokens) - width + 1)
     )
 
 
 def build_knowledge_graph(paper_title: str, analysis: dict) -> nx.Graph:
-    """Build an explorable graph from candidate insights and extracted keywords."""
+    """
+    Build a research-paper graph from extracted candidate insights and keywords.
+
+    Edges represent:
+    - paper -> extracted problem, method, or finding
+    - paper -> extracted keyword
+    - keyword -> candidate passage when its wording matches that passage
+
+    These are textual associations, not independently verified scientific claims.
+    """
+    analysis = analysis or {}
     graph = nx.Graph()
-    _add_node(graph, "paper", clean_label(paper_title or "Research paper", 10),
-              paper_title or "Research paper", "#4f46e5", 34, "box", "paper")
 
-    categories = [
-        ("research_problem_candidates", "Problem", "#f59e0b"),
-        ("method_candidates", "Method", "#8b5cf6"),
-        ("result_candidates", "Finding", "#10b981"),
-    ]
-    concept_ids = []
-    for key, category, color in categories:
-        for index, sentence in enumerate((analysis.get(key) or [])[:3]):
-            node_id = f"{category.lower()}_{index}"
-            _add_node(graph, node_id, f"{category}: {clean_label(sentence, 8)}",
-                      sentence, color, 22, "dot", category.lower())
-            graph.add_edge("paper", node_id, label=f"candidate {category.lower()}",
-                           color={"color": "#cbd5e1", "highlight": "#4f46e5"},
-                           width=2, title=f"Candidate {category.lower()} associated with this paper")
-            concept_ids.append(node_id)
+    title = str(paper_title or "Research paper").strip()
+    _add_node(
+        graph,
+        "paper",
+        clean_label(title, 9),
+        title,
+        "paper",
+        size=32,
+        shape="box",
+    )
 
-    keyword_ids = []
-    for index, keyword in enumerate((analysis.get("keywords") or [])[:10]):
-        keyword = str(keyword).strip()
-        if not keyword:
+    # Store the actual graph node IDs alongside their source text.
+    candidate_nodes = []
+
+    for source_key, category, display_name in CATEGORIES:
+        candidates = analysis.get(source_key) or []
+
+        if isinstance(candidates, str):
+            candidates = [candidates]
+
+        for index, sentence in enumerate(candidates[:4]):
+            sentence = str(sentence or "").strip()
+
+            if not sentence:
+                continue
+
+            node_id = f"{category}_{index}"
+
+            _add_node(
+                graph,
+                node_id,
+                sentence,
+                f"{display_name}\n\n{sentence}",
+                category,
+                size=23,
+            )
+
+            graph.add_edge(
+                "paper",
+                node_id,
+                relation="contains_candidate",
+                label=display_name.lower(),
+                color="#c6d0d9",
+                width=1.5,
+                title=(
+                    f"Candidate {display_name.lower()} extracted "
+                    "from this paper"
+                ),
+            )
+
+            candidate_nodes.append((node_id, sentence, category))
+
+    # Add unique keyword nodes.
+    keywords = analysis.get("keywords") or []
+
+    if isinstance(keywords, str):
+        keywords = [keywords]
+
+    keyword_nodes = []
+    seen_keywords = set()
+
+    for index, keyword in enumerate(keywords):
+        keyword = re.sub(r"\s+", " ", str(keyword or "")).strip()
+        normalised = keyword.casefold()
+
+        if not keyword or normalised in seen_keywords:
             continue
+
+        seen_keywords.add(normalised)
+
         node_id = f"keyword_{index}"
-        _add_node(graph, node_id, keyword, f"Extracted keyword: {keyword}", "#06b6d4", 15, "dot", "keyword")
-        graph.add_edge("paper", node_id, label="keyword", color={"color": "#dbeafe", "highlight": "#0891b2"},
-                       width=1, title="Keyword extracted from the paper")
-        keyword_ids.append(node_id)
 
-    # Link each keyword to a candidate sentence only when the term literally appears there.
-    candidate_texts = {}
-    for key, _, _ in categories:
-        candidate_texts.update({
-            f"{key}_{i}": str(sentence).casefold()
-            for i, sentence in enumerate((analysis.get(key) or [])[:3])
-        })
-    for ki, keyword in enumerate((analysis.get("keywords") or [])[:10]):
-        term = str(keyword).casefold().strip()
-        if len(term) < 3:
-            continue
-        for node_id, sentence in candidate_texts.items():
-            if term in sentence:
-                graph.add_edge(f"keyword_{ki}", node_id, label="mentioned in",
-                               color={"color": "#94a3b8", "highlight": "#4f46e5"},
-                               width=1, dashes=True, title="Keyword text appears in candidate sentence")
+        _add_node(
+            graph,
+            node_id,
+            keyword,
+            f"Extracted keyword\n\n{keyword}",
+            "keyword",
+            size=17,
+        )
 
-    # Ensure even sparse papers have a useful, honest graph rather than a blank canvas.
+        graph.add_edge(
+            "paper",
+            node_id,
+            relation="has_keyword",
+            label="keyword",
+            color="#d5e1e9",
+            width=1,
+            title="Keyword returned by the paper-analysis pipeline",
+        )
+
+        keyword_nodes.append((node_id, keyword))
+
+    # Link keywords to candidate passages only when their wording matches.
+    # Fixes the previous node-ID mismatch.
+    for keyword_id, keyword in keyword_nodes:
+        for candidate_id, sentence, _category in candidate_nodes:
+            if _keyword_matches(keyword, sentence):
+                graph.add_edge(
+                    keyword_id,
+                    candidate_id,
+                    relation="textual_match",
+                    label="text match",
+                    color="#9aabb8",
+                    width=1.2,
+                    dashes=True,
+                    title=(
+                        "The keyword phrase appears in the candidate text. "
+                        "This indicates textual overlap, not causal evidence."
+                    ),
+                )
+
+    # Handle empty or very sparse analyses without a misleading blank graph.
     if graph.number_of_nodes() == 1:
-        _add_node(graph, "notice", "No concepts extracted", "The analysis returned no candidate insights or keywords.", "#94a3b8", 18)
-        graph.add_edge("paper", "notice", label="analysis status", color="#cbd5e1", width=2)
+        _add_node(
+            graph,
+            "notice",
+            "No concepts extracted",
+            (
+                "The current analysis returned no usable candidate insights "
+                "or keywords. Check the extracted PDF text and analysis output."
+            ),
+            "notice",
+            size=18,
+        )
+
+        graph.add_edge(
+            "paper",
+            "notice",
+            relation="analysis_status",
+            label="analysis status",
+            color="#c6d0d9",
+            width=1.5,
+        )
+
+    graph.graph["description"] = (
+        "Relationships are derived from extracted candidate text and keywords. "
+        "They should be reviewed against the source paper."
+    )
+
     return graph
 
 
-def save_interactive_graph(graph: nx.Graph, output_path: str | None = None) -> str:
-    """Return standalone HTML; optionally write a copy to disk."""
+def save_interactive_graph(
+    graph: nx.Graph,
+    output_path: str | None = None,
+) -> str:
+    """Return interactive, self-contained PyVis HTML and optionally save it."""
+    
     net = Network(
         height="640px",
         width="100%",
         directed=False,
-        bgcolor="#fbfcff",
-        font_color="#172033",
+        bgcolor="#FFFFFF",
+        font_color="#263746",
         cdn_resources="in_line",
         notebook=False,
-        select_menu=True,
-        filter_menu=True,
     )
+
+
     net.from_nx(graph)
-    net.set_options("""
-    {
-      "nodes": {"borderWidth": 2, "shadow": {"enabled": true, "size": 8, "x": 0, "y": 3}},
-      "edges": {"smooth": {"enabled": true, "type": "dynamic"}, "font": {"size": 10, "align": "middle", "background": "#ffffff"}, "color": {"inherit": false}},
-      "physics": {
-        "enabled": true,
-        "solver": "forceAtlas2Based",
-        "forceAtlas2Based": {"gravitationalConstant": -45, "centralGravity": 0.01, "springLength": 150, "springConstant": 0.08, "damping": 0.45, "avoidOverlap": 0.8},
-        "stabilization": {"enabled": true, "iterations": 180, "fit": true}
-      },
-      "interaction": {"hover": true, "navigationButtons": true, "keyboard": true, "multiselect": true, "tooltipDelay": 120, "hideEdgesOnDrag": false, "zoomView": true}
+
+    options = {
+        "autoResize": True,
+        "nodes": {
+            "borderWidth": 1.5,
+            "borderWidthSelected": 2.5,
+            "shapeProperties": {"borderRadius": 4},
+            "scaling": {"min": 14, "max": 32},
+            "shadow": False,
+        },
+        
+        "edges": {
+            "smooth": {"enabled": True, "type": "continuous"},
+            "color": {
+                "inherit": False,
+                "color": "#C8D2D9",
+                "highlight": "#356F70",
+                "hover": "#637F8C",
+            },
+            "font": {
+                "size": 10,
+                "face": "Arial",
+                "color": "#526575",
+                "background": "#FFFFFF",
+                "strokeWidth": 0,
+            },
+        },
+
+        "physics": {
+            "enabled": True,
+            "solver": "forceAtlas2Based",
+            "forceAtlas2Based": {
+                "gravitationalConstant": -65,
+                "centralGravity": 0.012,
+                "springLength": 145,
+                "springConstant": 0.07,
+                "damping": 0.5,
+                "avoidOverlap": 0.8,
+            },
+            "stabilization": {
+                "enabled": True,
+                "iterations": 200,
+                "fit": True,
+            },
+        },
+        "interaction": {
+            "hover": True,
+            "tooltipDelay": 150,
+            "navigationButtons": True,
+            "keyboard": {"enabled": True},
+            "multiselect": True,
+            "selectConnectedEdges": True,
+            "hideEdgesOnDrag": True,
+            "zoomView": True,
+        },
     }
-    """)
-    html = net.generate_html()
+
+    net.set_options(json.dumps(options))
+    generated_html = net.generate_html()
+
+    if not generated_html or "vis-network" not in generated_html:
+        raise RuntimeError("PyVis did not generate a valid interactive graph.")
+
     if output_path:
-        Path(output_path).write_text(html, encoding="utf-8")
-    return html
+        destination = Path(output_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(generated_html, encoding="utf-8")
+
+    return generated_html

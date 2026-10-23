@@ -1,0 +1,113 @@
+
+/* Sidebar */
+[data-testid="stSidebar"] {
+    background: #FFFFFF;
+    border-right: 1px solid var(--pg-border);
+}
+[data-testid="stSidebar"] > div:first-child { padding-top: 1.5rem; }
+[data-testid="stSidebar"] hr { border-color: var(--pg-border); }
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 1.1rem;
+    border-bottom: 1px solid var(--pg-border);
+    background: transparent;
+}
+.stTabs [data-baseweb="tab"] {
+    height: 44px;
+    padding: 0 0.25rem;
+    background: transparent;
+    color: var(--pg-muted);
+    border-radius: 0;
+    font-size: 0.93rem;
+    font-weight: 500;
+}
+.stTabs [data-baseweb="tab"]:hover { color: var(--pg-accent); }
+.stTabs [aria-selected="true"] {
+    color: var(--pg-accent) !important;
+    font-weight: 650 !important;
+}
+.stTabs [data-baseweb="tab-highlight"] { background-color: var(--pg-accent); height: 2px; }
+.stTabs [data-baseweb="tab-border"] { background: transparent; }
+
+/* Buttons */
+.stButton > button,
+.stDownloadButton > button,
+[data-testid="stFormSubmitButton"] button {
+    background: var(--pg-accent);
+    color: #FFFFFF;
+    border: 1px solid var(--pg-accent);
+    border-radius: 6px;
+    padding: 0.48rem 0.9rem;
+    font-weight: 600;
+    transition: background 120ms ease, border-color 120ms ease;
+}
+.stButton > button:hover,
+.stDownloadButton > button:hover,
+[data-testid="stFormSubmitButton"] button:hover {
+    background: var(--pg-accent-hover);
+    border-color: var(--pg-accent-hover);
+    color: #FFFFFF;
+}
+
+/* Inputs */
+.stTextInput input,
+.stTextArea textarea,
+.stNumberInput input {
+    background: #FFFFFF;
+    color: var(--pg-text);
+    border-color: #CDD6DE;
+    border-radius: 6px;
+}
+.stTextInput input:focus,
+.stTextArea textarea:focus,
+.stNumberInput input:focus {
+    border-color: var(--pg-accent);
+    box-shadow: 0 0 0 1px var(--pg-accent);
+}
+
+/* Subtle containers and metrics */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--pg-surface);
+    border-color: var(--pg-border) !important;
+    border-radius: 8px;
+    box-shadow: none;
+}
+[data-testid="stMetric"] {
+    background: #FFFFFF;
+    border: 1px solid var(--pg-border);
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+}
+[data-testid="stMetricLabel"] { color: var(--pg-muted) !important; font-size: 0.82rem; }
+[data-testid="stMetricValue"] { color: var(--pg-text) !important; font-size: 1.5rem; font-weight: 650; }
+
+/* Alerts, expanders, tables */
+[data-testid="stAlert"] { border-radius: 6px; box-shadow: none; }
+[data-testid="stExpander"] {
+    background: #FFFFFF;
+    border: 1px solid var(--pg-border);
+    border-radius: 6px;
+}
+[data-testid="stExpander"] summary { color: var(--pg-text); font-weight: 550; }
+[data-testid="stDataFrame"], [data-testid="stTable"] {
+    border: 1px solid var(--pg-border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+hr { border-color: var(--pg-border); }
+a { color: var(--pg-accent); text-underline-offset: 3px; }
+a:hover { color: var(--pg-accent-hover); }
+iframe { border: 1px solid var(--pg-border); border-radius: 6px; background: #FFFFFF; }
+
+button:focus-visible, a:focus-visible, input:focus-visible {
+    outline: 2px solid var(--pg-accent);
+    outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
+    .block-container { padding: 1rem 1rem 2rem; }
+    h1 { font-size: 1.65rem !important; }
+    .stTabs [data-baseweb="tab-list"] { gap: 0.6rem; }
+    [data-testid="stMetric"] { padding: 0.7rem; }
+}
