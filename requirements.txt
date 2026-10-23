@@ -5,3 +5,4 @@ keybert
 sentence-transformers
 networkx
 pyvis
+textstat
