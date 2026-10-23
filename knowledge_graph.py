@@ -1,343 +1,329 @@
 
-import html
-import json
+# knowledge_graph.py
+# Clean, research-oriented knowledge graph for PaperGraph
+
+from collections import Counter
+from html import escape
 import re
+import tempfile
 from pathlib import Path
 
 import networkx as nx
 from pyvis.network import Network
 
 
-# Restrained colors chosen to distinguish research entity types.
-
+# Restrained scientific color palette
 COLORS = {
-    "paper": "#263746",   # Core paper
-    "problem": "#B77B27", # Research problem
-    "method": "#7566A8",  # Methodology
-    "finding": "#28745F", # Findings
-    "keyword": "#397CA5", # Keywords
-    "notice": "#788692",  # Empty or unavailable information
+    "paper": "#263746",
+    "problem": "#B77B27",
+    "method": "#7566A8",
+    "finding": "#28745F",
+    "keyword": "#397CA5",
 }
 
-CATEGORIES = [
-    ("research_problem_candidates", "problem", "Research problem"),
-    ("method_candidates", "method", "Method"),
-    ("result_candidates", "finding", "Finding"),
-]
+BACKGROUND = "#FFFFFF"
+EDGE_COLOR = "#C8D1D9"
+FONT_COLOR = "#263746"
 
 
-def clean_label(text: str, max_words: int = 8) -> str:
-    """Create a compact label while preserving the full text elsewhere."""
-    text = re.sub(r"\s+", " ", str(text or "")).strip()
-    words = text.split()
+def _clean_text(value):
+    """Convert extracted content to readable text."""
+    if value is None:
+        return ""
 
-    if len(words) > max_words:
-        return " ".join(words[:max_words]) + "…"
+    if isinstance(value, dict):
+        for key in ("text", "content", "name", "title", "description"):
+            if value.get(key):
+                return _clean_text(value[key])
+        return ""
 
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(
+            _clean_text(item) for item in value if item is not None
+        ).strip()
+
+    text = re.sub(r"\s+", " ", str(value)).strip()
     return text
 
 
-def _add_node(
-    graph: nx.Graph,
-    node_id: str,
-    label: str,
-    description: str,
-    category: str,
-    size: int = 20,
-    shape: str = "dot",
-) -> None:
-    """Add a graph node with a short label and a full-text tooltip."""
-    graph.add_node(
-        node_id,
-        label=clean_label(label),
-        title=html.escape(str(description or label)),
-        color=COLORS.get(category, COLORS["notice"]),
-        size=size,
-        shape=shape,
-        group=category,
-        font={
-            "face": "Arial",
-            "size": 16,
-            "color": "#263746",
-            "strokeWidth": 3,
-            "strokeColor": "#ffffff",
-        },
-        borderWidth=1.5,
-    )
+def _get_first(data, keys, default=None):
+    """Find the first available key in a dictionary."""
+    if not isinstance(data, dict):
+        return default
+
+    for key in keys:
+        if key in data and data[key] is not None:
+            return data[key]
+
+    return default
 
 
-def _normalise_terms(text: str) -> set[str]:
-    """Extract words and short phrases for conservative text matching."""
-    text = str(text or "").casefold()
-    return set(re.findall(r"[a-z0-9]+(?:[-'][a-z0-9]+)*", text))
+def _as_list(value):
+    """Normalize extracted results into a list."""
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+
+    if isinstance(value, dict):
+        return [value]
+
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+
+    return [value]
 
 
-def _keyword_matches(keyword: str, sentence: str) -> bool:
-    """
-    Match a keyword as a complete phrase or sequence of tokens.
-    This avoids false matches such as 'net' matching 'network'.
-    """
-    keyword_tokens = re.findall(
-        r"[a-z0-9]+(?:[-'][a-z0-9]+)*",
-        str(keyword or "").casefold(),
-    )
-    sentence_tokens = re.findall(
-        r"[a-z0-9]+(?:[-'][a-z0-9]+)*",
-        str(sentence or "").casefold(),
-    )
+def _short_label(text, max_length=48):
+    """Keep labels compact; the complete text remains in the tooltip."""
+    text = _clean_text(text)
 
-    if not keyword_tokens or not sentence_tokens:
+    if len(text) <= max_length:
+        return text
+
+    shortened = text[:max_length - 3].rsplit(" ", 1)[0]
+    return (shortened or text[:max_length - 3]) + "..."
+
+
+def _normalize_items(data, keys):
+    """Extract a list of meaningful text items from analysis output."""
+    raw = _get_first(data, keys, [])
+    result = []
+
+    for item in _as_list(raw):
+        text = _clean_text(item)
+        if text and text not in result:
+            result.append(text)
+
+    return result
+
+
+def _keyword_matches(keyword, text):
+    """Match whole words rather than arbitrary character substrings."""
+    keyword_words = re.findall(r"[a-z0-9]+", keyword.lower())
+    text_words = set(re.findall(r"[a-z0-9]+", text.lower()))
+
+    if not keyword_words:
         return False
 
-    width = len(keyword_tokens)
+    # Avoid weak links from very short keywords.
+    if len(keyword_words) == 1 and len(keyword_words[0]) < 4:
+        return False
 
-    return any(
-        sentence_tokens[i:i + width] == keyword_tokens
-        for i in range(len(sentence_tokens) - width + 1)
-    )
+    return all(word in text_words for word in keyword_words)
 
 
-def build_knowledge_graph(paper_title: str, analysis: dict) -> nx.Graph:
+def build_knowledge_graph(analysis_results):
     """
-    Build a research-paper graph from extracted candidate insights and keywords.
+    Build a clean knowledge graph from PaperGraph analysis output.
 
-    Edges represent:
-    - paper -> extracted problem, method, or finding
-    - paper -> extracted keyword
-    - keyword -> candidate passage when its wording matches that passage
+    Expected input is a dictionary containing a paper title and any of:
+    problems, methods, findings, keywords.
 
-    These are textual associations, not independently verified scientific claims.
+    Common alternative field names are supported as well.
     """
-    analysis = analysis or {}
+    data = analysis_results if isinstance(analysis_results, dict) else {}
+
     graph = nx.Graph()
 
-    title = str(paper_title or "Research paper").strip()
-    _add_node(
-        graph,
+    title = _clean_text(
+        _get_first(
+            data,
+            ["title", "paper_title", "document_title", "filename"],
+            "Research Paper",
+        )
+    ) or "Research Paper"
+
+    graph.add_node(
         "paper",
-        clean_label(title, 9),
-        title,
-        "paper",
-        size=32,
+        label=_short_label(title, 54),
+        title=escape(title),
+        group="paper",
+        color=COLORS["paper"],
+        size=30,
         shape="box",
+        font={"color": "#FFFFFF", "size": 17, "face": "Arial"},
     )
 
-    # Store the actual graph node IDs alongside their source text.
-    candidate_nodes = []
+    categories = {
+        "problem": _normalize_items(
+            data, ["problems", "research_problems", "challenges"]
+        ),
+        "method": _normalize_items(
+            data, ["methods", "methodologies", "approaches", "techniques"]
+        ),
+        "finding": _normalize_items(
+            data, ["findings", "key_findings", "contributions", "results"]
+        ),
+        "keyword": _normalize_items(
+            data, ["keywords", "keyphrases", "key_phrases"]
+        ),
+    }
 
-    for source_key, category, display_name in CATEGORIES:
-        candidates = analysis.get(source_key) or []
+    # Limit each group to keep the graph readable.
+    limits = {
+        "problem": 5,
+        "method": 6,
+        "finding": 5,
+        "keyword": 8,
+    }
 
-        if isinstance(candidates, str):
-            candidates = [candidates]
+    category_nodes = {}
 
-        for index, sentence in enumerate(candidates[:4]):
-            sentence = str(sentence or "").strip()
+    for category, items in categories.items():
+        category_nodes[category] = []
 
-            if not sentence:
-                continue
-
+        for index, text in enumerate(items[:limits[category]]):
             node_id = f"{category}_{index}"
 
-            _add_node(
-                graph,
+            graph.add_node(
                 node_id,
-                sentence,
-                f"{display_name}\n\n{sentence}",
-                category,
-                size=23,
+                label=_short_label(text, 34),
+                title=escape(text),
+                group=category,
+                color=COLORS[category],
+                size=17 if category != "keyword" else 12,
+                shape="dot",
+                font={"color": FONT_COLOR, "size": 12, "face": "Arial"},
             )
 
+            category_nodes[category].append((node_id, text))
+
+    # Connect extracted concepts to the paper.
+    # These edges mean "extracted from this paper", not causal relations.
+    for category in ("problem", "method", "finding"):
+        for node_id, _ in category_nodes[category]:
             graph.add_edge(
                 "paper",
                 node_id,
-                relation="contains_candidate",
-                label=display_name.lower(),
-                color="#c6d0d9",
-                width=1.5,
-                title=(
-                    f"Candidate {display_name.lower()} extracted "
-                    "from this paper"
-                ),
+                color=EDGE_COLOR,
+                width=1.2,
+                title="Extracted from paper",
+                smooth=False,
             )
 
-            candidate_nodes.append((node_id, sentence, category))
+    # Connect keywords only when there is a clear textual match.
+    # Keep each keyword's degree small to prevent a tangled graph.
+    keyword_items = category_nodes["keyword"]
 
-    # Add unique keyword nodes.
-    keywords = analysis.get("keywords") or []
+    for keyword_id, keyword_text in keyword_items:
+        matched = []
 
-    if isinstance(keywords, str):
-        keywords = [keywords]
+        for category in ("problem", "method", "finding"):
+            for node_id, text in category_nodes[category]:
+                if _keyword_matches(keyword_text, text):
+                    matched.append(node_id)
 
-    keyword_nodes = []
-    seen_keywords = set()
+        # Only retain keyword nodes that have meaningful associations.
+        for target_id in matched[:2]:
+            graph.add_edge(
+                keyword_id,
+                target_id,
+                color="#D9E0E6",
+                width=0.8,
+                dashes=True,
+                title="Textual keyword association",
+                smooth=False,
+            )
 
-    for index, keyword in enumerate(keywords):
-        keyword = re.sub(r"\s+", " ", str(keyword or "")).strip()
-        normalised = keyword.casefold()
-
-        if not keyword or normalised in seen_keywords:
-            continue
-
-        seen_keywords.add(normalised)
-
-        node_id = f"keyword_{index}"
-
-        _add_node(
-            graph,
-            node_id,
-            keyword,
-            f"Extracted keyword\n\n{keyword}",
-            "keyword",
-            size=17,
-        )
-
-        graph.add_edge(
-            "paper",
-            node_id,
-            relation="has_keyword",
-            label="keyword",
-            color="#d5e1e9",
-            width=1,
-            title="Keyword returned by the paper-analysis pipeline",
-        )
-
-        keyword_nodes.append((node_id, keyword))
-
-    # Link keywords to candidate passages only when their wording matches.
-    # Fixes the previous node-ID mismatch.
-    for keyword_id, keyword in keyword_nodes:
-        for candidate_id, sentence, _category in candidate_nodes:
-            if _keyword_matches(keyword, sentence):
-                graph.add_edge(
-                    keyword_id,
-                    candidate_id,
-                    relation="textual_match",
-                    label="text match",
-                    color="#9aabb8",
-                    width=1.2,
-                    dashes=True,
-                    title=(
-                        "The keyword phrase appears in the candidate text. "
-                        "This indicates textual overlap, not causal evidence."
-                    ),
-                )
-
-    # Handle empty or very sparse analyses without a misleading blank graph.
-    if graph.number_of_nodes() == 1:
-        _add_node(
-            graph,
-            "notice",
-            "No concepts extracted",
-            (
-                "The current analysis returned no usable candidate insights "
-                "or keywords. Check the extracted PDF text and analysis output."
-            ),
-            "notice",
-            size=18,
-        )
-
-        graph.add_edge(
-            "paper",
-            "notice",
-            relation="analysis_status",
-            label="analysis status",
-            color="#c6d0d9",
-            width=1.5,
-        )
-
-    graph.graph["description"] = (
-        "Relationships are derived from extracted candidate text and keywords. "
-        "They should be reviewed against the source paper."
-    )
+    # Remove isolated keywords: they add clutter without context.
+    for node_id, _ in keyword_items:
+        if node_id in graph and graph.degree(node_id) == 0:
+            graph.remove_node(node_id)
 
     return graph
 
 
-def save_interactive_graph(
-    graph: nx.Graph,
-    output_path: str | None = None,
-) -> str:
-    """Return interactive, self-contained PyVis HTML and optionally save it."""
-    
+def save_interactive_graph(graph):
+    """
+    Return interactive graph HTML for Streamlit components.html().
+
+    Example:
+        graph = build_knowledge_graph(analysis_results)
+        graph_html = save_interactive_graph(graph)
+    """
     net = Network(
-        height="640px",
+        height="650px",
         width="100%",
         directed=False,
-        bgcolor="#FFFFFF",
-        font_color="#263746",
-        cdn_resources="in_line",
+        bgcolor=BACKGROUND,
+        font_color=FONT_COLOR,
         notebook=False,
+        cdn_resources="in_line",
     )
-
 
     net.from_nx(graph)
 
-    options = {
-        "autoResize": True,
-        "nodes": {
-            "borderWidth": 1.5,
-            "borderWidthSelected": 2.5,
-            "shapeProperties": {"borderRadius": 4},
-            "scaling": {"min": 14, "max": 32},
-            "shadow": False,
-        },
-        
-        "edges": {
-            "smooth": {"enabled": True, "type": "continuous"},
-            "color": {
-                "inherit": False,
-                "color": "#C8D2D9",
-                "highlight": "#356F70",
-                "hover": "#637F8C",
-            },
+    # Stable, restrained styling. Physics helps position nodes initially;
+    # users can still drag nodes and zoom.
+    net.set_options(
+        """
+        {
+          "layout": {
+            "improvedLayout": true
+          },
+          "nodes": {
+            "borderWidth": 1,
+            "borderWidthSelected": 2,
+            "shadow": false,
             "font": {
-                "size": 10,
-                "face": "Arial",
-                "color": "#526575",
-                "background": "#FFFFFF",
-                "strokeWidth": 0,
+              "face": "Arial",
+              "size": 12",
+              "strokeWidth": 0
             },
-        },
-
-        "physics": {
-            "enabled": True,
-            "solver": "forceAtlas2Based",
-            "forceAtlas2Based": {
-                "gravitationalConstant": -65,
-                "centralGravity": 0.012,
-                "springLength": 145,
-                "springConstant": 0.07,
-                "damping": 0.5,
-                "avoidOverlap": 0.8,
+            "scaling": {
+              "min": 10,
+              "max": 25
+            }
+          },
+          "edges": {
+            "color": {
+              "inherit": false,
+              "color": "#C8D1D9",
+              "highlight": "#718096"
+            },
+            "width": 1,
+            "selectionWidth": 1,
+            "hoverWidth": 1,
+            "smooth": {
+              "enabled": false
+            }
+          },
+          "interaction": {
+            "hover": true,
+            "tooltipDelay": 180,
+            "hideEdgesOnDrag": true,
+            "navigationButtons": true,
+            "keyboard": {
+              "enabled": true
+            }
+          },
+          "physics": {
+            "enabled": true,
+            "solver": "barnesHut",
+            "barnesHut": {
+              "gravitationalConstant": -4500,
+              "centralGravity": 0.25,
+              "springLength": 170,
+              "springConstant": 0.025,
+              "damping": 0.35,
+              "avoidOverlap": 0.8
             },
             "stabilization": {
-                "enabled": True,
-                "iterations": 200,
-                "fit": True,
+              "enabled": true,
+              "iterations": 250,
+              "updateInterval": 25,
+              "fit": true
             },
-        },
-        "interaction": {
-            "hover": True,
-            "tooltipDelay": 150,
-            "navigationButtons": True,
-            "keyboard": {"enabled": True},
-            "multiselect": True,
-            "selectConnectedEdges": True,
-            "hideEdgesOnDrag": True,
-            "zoomView": True,
-        },
-    }
+            "minVelocity": 0.75
+          }
+        }
+        """
+    )
 
-    net.set_options(json.dumps(options))
-    generated_html = net.generate_html()
-
-    if not generated_html or "vis-network" not in generated_html:
-        raise RuntimeError("PyVis did not generate a valid interactive graph.")
-
-    if output_path:
-        destination = Path(output_path)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(generated_html, encoding="utf-8")
-
-    return generated_html
+    # Write to a temporary HTML file, then return its contents to Streamlit.
+    with tempfile.TemporaryDirectory() as temp_dir:
+        output_path = Path(temp_dir) / "papergraph.html"
+        net.save_graph(str(output_path))
+        return output_path.read_text(encoding="utf-8")
