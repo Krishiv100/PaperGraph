@@ -1,4 +1,4 @@
-# PaperGraph
+# PaperGraph https://papergraph-wgb2gpmm8csec2ueuk66j2.streamlit.app/
 
 <p align="center">
   <strong>Turn research papers into insights, not hours of reading.</strong>
